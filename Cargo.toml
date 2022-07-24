@@ -1,0 +1,13 @@
+[package]
+name = "simple-frequent-itemsets"
+version = "0.1.0"
+edition = "2021"
+authors = ["Roni Hämäläinen <roni.hamalainen@tuni.fi>"]
+description = "Simple implementation of frequent itemsets algorithm."
+repository = ""
+readme = "README.md"
+keywords = ["frequent-itemsets", "data-mining", "apriori"]
+categories = ["algorithms", "science"]
+
+[dependencies]
+itertools = "*"
