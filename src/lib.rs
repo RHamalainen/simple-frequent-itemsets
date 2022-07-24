@@ -1,96 +1,231 @@
+//! Simple implementation of frequent itemsets apriori algorithm.
+//!
+//! This crate is a work in progress.
+//!
+//! # Example
+//!
+//! In this example, there is only one itemset with minimum support of three.
+//! That itemset contains numbers 2 and 3.
+//!
+//! ```rust
+//! let dataset = vec![
+//!     vec![1, 2, 3],
+//!     vec![2, 3, 4],
+//!     vec![1, 2, 3, 5],
+//! ];
+//! let input = dataset.iter().cloned().map(ItemSet::from_iter).collect_vec();
+//! let support_minimum = 3;
+//! let output = frequent_itemsets(&input, support_minimum);
+//! ```
+//!
+//! # TODO
+//!
+//! - rename algorithm input to "transactions"
+//! - solve what happens when minimum support is 0 or 1
+//! - write more tests
+
 use itertools::Itertools;
-use std::{collections::HashMap, collections::HashSet, ops::Not};
+use std::collections::{BTreeSet, HashMap};
 
-/// Get unique items in jagged array.
-fn get_unique(data: &Vec<Vec<usize>>) -> Vec<usize> {
-    let mut result = HashSet::new();
-    for items in data {
-        for item in items {
-            result.insert(*item);
-        }
-    }
-    result.iter().copied().collect_vec()
+/// Set of unique items.
+pub type ItemSet = BTreeSet<usize>;
+
+/// Set of itemsets. Can contain duplicates.
+pub type ItemSetList = Vec<ItemSet>;
+
+/// Itemsets associated with a frequency value.
+pub type Supports = HashMap<ItemSet, usize>;
+
+/// Get unique items in itemsets.
+fn solve_unique_itemset(itemsets: &ItemSetList) -> ItemSet {
+    itemsets.iter().fold(ItemSet::new(), |result, itemset| {
+        result.union(itemset).copied().collect()
+    })
 }
 
-/// Get certain size combinations from items.
-fn get_combinations(items: &[usize], size: usize) -> Vec<Vec<usize>> {
-    items.iter().copied().combinations(size).collect_vec()
-}
-
-/// Count item sets' supports.
-fn get_supports(
-    data: &Vec<Vec<usize>>,
-    combinations: &Vec<Vec<usize>>,
-) -> HashMap<Vec<usize>, usize> {
-    let mut supports: HashMap<Vec<usize>, usize> = HashMap::new();
-    for data_items in data {
-        for combination in combinations {
-            let mut all_found = true;
-            for item in combination {
-                if data_items.contains(item).not() {
-                    all_found = false;
-                    break;
-                }
-            }
-            if all_found {
-                let combination = combination.clone();
-                if supports.contains_key(&combination) {
-                    let count = supports.get(&combination).unwrap();
-                    supports.insert(combination, count + 1);
-                } else {
-                    supports.insert(combination.clone(), 1);
-                }
-            }
-        }
-    }
-    supports
-}
-
-/// Remove item sets whose support is lower than minimum support.
-fn prune<T: std::cmp::Eq + std::hash::Hash + std::clone::Clone>(
-    supports: &HashMap<T, usize>,
-    support_minimum: usize,
-) -> HashMap<T, usize> {
-    let mut result = HashMap::new();
-    for (item, support) in supports {
-        if support_minimum <= *support {
-            result.insert(item.clone(), *support);
-        }
+/// Get certain size combinations from itemset.
+fn solve_combinations(itemset: &ItemSet, size: usize) -> ItemSetList {
+    let mut result = ItemSetList::new();
+    let combinations = itemset.iter().combinations(size).collect_vec();
+    for list in combinations {
+        let owned_list = list.iter().map(|&x| *x).collect_vec();
+        let set = ItemSet::from_iter(owned_list);
+        result.push(set);
     }
     result
 }
 
-fn get_keys<T: std::cmp::Eq + std::hash::Hash + std::clone::Clone>(
-    items: &HashMap<T, usize>,
-) -> Vec<T> {
-    items.keys().cloned().collect_vec()
+/// Check if all combination's items are present in a data itemset.
+fn combination_is_in_itemset(itemset: &ItemSet, combination: &ItemSet) -> bool {
+    combination.iter().all(|item| itemset.contains(item))
 }
 
-pub fn frequent_itemsets(
-    data: Vec<Vec<usize>>,
+/// Remove itemsets with support lower than minimum support.
+fn prune(supports: &Supports, support_minimum: usize) -> Supports {
+    supports
+        .iter()
+        .filter(|&(_itemset, support)| support_minimum <= *support)
+        .map(|(k, v)| (k.clone(), *v))
+        .collect()
+}
+
+/// Count itemsets' supports.
+fn solve_supports(
+    data: &ItemSetList,
+    combinations: &ItemSetList,
     support_minimum: usize,
-) -> HashMap<Vec<usize>, usize> {
-    let mut result = HashMap::new();
-    let items = get_unique(&data);
-    let size = 1;
-    let combinations = get_combinations(&items, size);
-    let supports = get_supports(&data, &combinations);
-    println!("{:?}", supports);
-    let mut supports = prune(&supports, support_minimum);
-    println!("{:?}", supports);
+) -> Supports {
+    let mut supports = Supports::new();
+    for itemset in data {
+        for combination in combinations {
+            if combination_is_in_itemset(itemset, combination) {
+                let count = supports.entry(combination.clone()).or_insert(0);
+                *count += 1;
+            }
+        }
+    }
+    prune(&supports, support_minimum)
+}
+
+/// Get itemsets from supports.
+fn extract_itemsets(items: &Supports) -> ItemSetList {
+    ItemSetList::from_iter(items.keys().cloned().collect_vec())
+}
+
+/// Solve frequent itemsets.
+#[must_use]
+pub fn frequent_itemsets(data: &ItemSetList, support_minimum: usize) -> Supports {
+    let mut result = Supports::new();
+    let mut unique_itemset = solve_unique_itemset(data);
     for size in 1.. {
-        let items = get_keys(&supports);
-        let items = get_unique(&items);
-        let combinations = get_combinations(&items, size);
-        println!("{:?}", combinations);
-        let mut supports = get_supports(&data, &combinations);
-        println!("{:?}", supports);
-        let mut supports = prune(&supports, support_minimum);
-        println!("{:?}", supports);
+        let combinations = solve_combinations(&unique_itemset, size);
+        let supports = solve_supports(data, &combinations, support_minimum);
         if supports.is_empty() {
             break;
         }
         result = supports.clone();
+        let itemsets = extract_itemsets(&supports);
+        unique_itemset = solve_unique_itemset(&itemsets);
     }
     result
+}
+
+/// Helper function to transform jagged array to itemset list.
+#[must_use]
+pub fn jagged_array_to_itemsetlist(input: &[Vec<usize>]) -> ItemSetList {
+    input.iter().cloned().map(ItemSet::from_iter).collect_vec()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn empty_output_with_empty_input() {
+        let support_minimum = 2;
+        let dataset = vec![];
+        let data = jagged_array_to_itemsetlist(&dataset);
+        let output = frequent_itemsets(&data, support_minimum);
+        let expected = Supports::new();
+        assert_eq!(output, expected);
+    }
+
+    #[test]
+    fn returns_all_with_minimum_support_zero() {
+        let support_minimum = 0;
+        let dataset = vec![
+            vec![1],
+            vec![1, 2],
+            vec![1, 2, 3],
+            vec![1, 2, 3, 4],
+            vec![1, 2, 3, 4, 5],
+        ];
+        let data = jagged_array_to_itemsetlist(&dataset);
+        let output = frequent_itemsets(&data, support_minimum);
+        let mut expected = Supports::new();
+        expected.insert(ItemSet::from_iter(vec![1]), 1);
+        expected.insert(ItemSet::from_iter(vec![1, 2]), 1);
+        expected.insert(ItemSet::from_iter(vec![1, 2, 3]), 1);
+        expected.insert(ItemSet::from_iter(vec![1, 2, 3, 4]), 1);
+        expected.insert(ItemSet::from_iter(vec![1, 2, 3, 4, 5]), 1);
+        assert_eq!(output, expected);
+    }
+
+    #[test]
+    fn returns_all_with_minimum_support_one() {
+        let support_minimum = 1;
+        let dataset = vec![
+            vec![1, 3, 4],
+            vec![2, 3, 5],
+            vec![1, 2, 3, 5],
+            vec![2, 5],
+            vec![1, 3, 5],
+        ];
+        let data = jagged_array_to_itemsetlist(&dataset);
+        let output = frequent_itemsets(&data, support_minimum);
+        let mut expected = Supports::new();
+        expected.insert(ItemSet::from_iter(vec![1, 3, 4]), 1);
+        expected.insert(ItemSet::from_iter(vec![2, 3, 5]), 1);
+        expected.insert(ItemSet::from_iter(vec![1, 2, 3, 5]), 1);
+        expected.insert(ItemSet::from_iter(vec![2, 5]), 1);
+        expected.insert(ItemSet::from_iter(vec![1, 3, 5]), 1);
+        assert_eq!(output, expected);
+    }
+
+    #[test]
+    fn various_data_with_minimum_support_2_instance_1() {
+        let support_minimum = 2;
+        let dataset = vec![
+            vec![1, 3, 4],
+            vec![2, 3, 5],
+            vec![1, 2, 3, 5],
+            vec![2, 5],
+            vec![1, 3, 5],
+        ];
+        let data = jagged_array_to_itemsetlist(&dataset);
+        let output = frequent_itemsets(&data, support_minimum);
+        let mut expected = Supports::new();
+        expected.insert(ItemSet::from_iter(vec![1, 3, 5]), 2);
+        expected.insert(ItemSet::from_iter(vec![2, 3, 5]), 2);
+        assert_eq!(output, expected);
+    }
+
+    #[test]
+    fn various_data_with_minimum_support_2_instance_2() {
+        let support_minimum = 2;
+        let dataset = vec![
+            vec![1, 2, 5],
+            vec![2, 4],
+            vec![2, 3],
+            vec![1, 2, 4],
+            vec![1, 3],
+            vec![2, 3],
+            vec![1, 3],
+            vec![1, 2, 3, 5],
+            vec![1, 2, 3],
+        ];
+        let data = jagged_array_to_itemsetlist(&dataset);
+        let output = frequent_itemsets(&data, support_minimum);
+        let mut expected = Supports::new();
+        expected.insert(ItemSet::from_iter(vec![1, 2, 3]), 2);
+        expected.insert(ItemSet::from_iter(vec![1, 2, 5]), 2);
+        assert_eq!(output, expected);
+    }
+
+    #[test]
+    fn various_data_with_minimum_support_3() {
+        let support_minimum = 3;
+        let dataset = vec![
+            vec![1, 2, 3],
+            vec![2, 3, 4],
+            vec![2, 3, 5],
+            vec![1, 2, 3],
+            vec![1, 2, 3],
+        ];
+        let data = jagged_array_to_itemsetlist(&dataset);
+        let output = frequent_itemsets(&data, support_minimum);
+        let mut expected = Supports::new();
+        expected.insert(ItemSet::from_iter(vec![1, 2, 3]), 3);
+        assert_eq!(output, expected);
+    }
 }

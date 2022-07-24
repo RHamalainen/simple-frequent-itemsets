@@ -8,6 +8,7 @@ repository = "https://github.com/RHamalainen/simple-frequent-itemsets"
 readme = "README.md"
 keywords = ["frequent-itemsets", "data-mining", "apriori"]
 categories = ["algorithms", "science"]
+license = "Apache-2.0"
 
 [dependencies]
 itertools = "*"
